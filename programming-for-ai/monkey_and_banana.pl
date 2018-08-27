@@ -23,5 +23,11 @@ move(state(P1, onfloor, B, H),
 % canget(State): monkey can get banana in State
 canget(state(_, _, _, has)).
 canget(State1) :-
-    move(Statel, Move, State2),
+    move(State1, _, State2),
     canget(State2).
+
+% get plan
+canget(state(_, _, _, has), []).
+canget(State, [Action|Actions]) :-
+    move(State, Action, New_State),
+    canget(New_State, Actions).
