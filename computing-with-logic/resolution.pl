@@ -6,38 +6,43 @@ resolution(InputFile):-
     transform_query,
     resolution_helper,
     !,
-    myClause(_, empty)
-    ->
-        writeln('resolution(success).'),
-        print_result
-    ;
-        writeln('resolution(fail).').
+    (
+        myClause(_Num, empty)
+        ->
+            writeln('resolution(success).'),
+            print_result
+        ;
+            writeln('resolution(fail).')
+    ).
+
 
 resolution_helper:-
     resolution_helper(_, _).
-
 resolution_helper(N, _):-
-    myClause(N, empty), !.
-
+    myClause(N, empty),
+    !.
 resolution_helper(_, N):-
-    myClause(N, empty), !.
-
+    myClause(N, emplty),
+    !.
 resolution_helper(N1, N2):-
     myClause(N1, Clause1),
     myClause(N2, Clause2),
-    extract(Clause1, AtomList1),
-    extract(Clause2, AtomList2),
+    extract(Clause1, AtomList1_Dup),
+    remove_duplicate(AtomList1_Dup, AtomList1),
+    extract(Clause2, AtomList2_Dup),
+    remove_duplicate(AtomList2_Dup, AtomList2),
     union(AtomList1, AtomList2, NewList),
-    inverse(NewList, NewClause),
+    construct(NewList, NewClause),
     \+ clause_in_db(NewClause),
     get_next_id(Num),
     assertz(myClause(Num, NewClause)),
     assertz(result(N1, N2, NewClause, Num)),
     retract(myClause(N1, Clause1)),
-    retract(myClause(N2, Clause2)), fail;
+    retract(myClause(N2, Clause2)),
+    fail;
     true.
 
-% read file
+% helper functions
 read_file(InputFile):-
     see(InputFile),
     repeat,
@@ -53,47 +58,59 @@ read_file(InputFile):-
     seen,
     see(user).
 
+transform_query:-
+    myQuery(X, Y),
+    extract(Y, ExpressionList),
+    transform(ExpressionList, AtomList),
+    retract(myQuery(X, Y)),
+    add_new_clause(AtomList),
+    !.
 
-%main(InputFile):-
-%    open(InputFile, read, Str),
-%    read_file(Str, _),
-%    close(Str).
 
-%read_file(Stream,[]):-
-%    at_end_of_stream(Stream), !.
+transform([], []).
+transform([X|Xs], [neg(X)|Res]):-
+    transform(Xs, Res).
+transform([neg(X)|Xs],[X|Res]):-
+    transform(Xs, Res).
 
-%read_file(Stream,[X|L]):-
-%    \+ at_end_of_stream(Stream),
-%    read(Stream,X),
-%    assert(X),
-%    read_file(Stream,L).
 
-% add new clause auxiliary function
-get_next_id(NextNum) :-
+add_new_clause([]).
+add_new_clause([X|T]):-
+    get_next_id(NextNum),
+    asserta(myClause(NextNum, X)),
+    add_new_clause(T).
+
+
+get_next_id(NextNum):-
     findall(Num, myClause(Num, _), Nums),
     max_id(Nums, Num0),
     NextNum is Num0 + 1.
 
-max_id([Num], Num).
-max_id([M,N|L], Res):-
-    M >= N
-    -> max_id([M|L], Res)
-    ;
-       max_id([N|L], Res).
+
+max_id([Num], Num):- !.
+max_id([M, N|L], Res):-
+    (
+        M >= N
+        ->
+            max_id([M|L], Res)
+        ;
+            max_id([N|L], Res)
+    ).
+
 
 get_neg_atom([], []).
-
-get_neg_atom([neg(X)|Xs], [neg(X)|Rest]):-
+get_neg_atom([neg(X)|Xs], [neg(X)|Res]):-
     atom(X),
     !,
-    get_neg_atom(Xs, Rest).
+    get_neg_atom(Xs, Res).
+get_neg_atom([_|Xs], Res):-
+    get_neg_atom(Xs, Res).
 
-get_neg_atom([_|Xs], Rest):-
-    get_neg_atom(Xs, Rest).
 
+clause_in_db(Clause):-
+    myClause(_, Clause),
+    !.
 
-clause_in_db(Clause) :-
-    myClause(_, Clause), !.
 
 union(L1, L2, Result):-
     get_neg_atom(L1, [neg(A)|_]),
@@ -103,10 +120,11 @@ union(L1, L2, Result):-
     append(RestOfL1, RestOfL2, RawResult),
     remove_duplicate(RawResult, Result).
 
-delete(X, [X|Ys], Ys).
 
-delete(X, [Y|Ys], [Y|Zs]) :-
+delete(X, [X|Ys], Ys).
+delete(X, [Y|Ys], [Y|Zs]):-
     delete(X, Ys, Zs).
+
 
 remove_duplicate([], []).
 remove_duplicate([H|T], [H|Res]):-
@@ -116,34 +134,37 @@ remove_duplicate([H|T], [H|Res]):-
 remove_duplicate([_|T], List):-
     remove_duplicate(T, List).
 
-transform_query:-
-    myQuery(X, Y),
-    atom(Y),
-    asserta(myClause(X, neg(Y))),
-    retract(myQuery(X, Y)),
+
+extract(neg(A), [neg(A)]):-
+    atom(A),
     !.
-
-transform_query:-
-    myQuery(X, neg(Y)),
-    atom(Y),
-    asserta(myClause(X, Y)),
-    retract(myQuery(X, neg(Y))),
+extract(A, [A]):-
+    atom(A),
     !.
+extract(E, [Atom|L]):-
+    E=.. [_Operation, RestExpression, Atom],
+    atom(Atom),
+    !,
+    extract(RestExpression, L).
+extract(E, Res):-
+    E=.. [_Operation, RestExpression, Expression],
+    extract(Expression, PartialRes),
+    extract(RestExpression, PartialRes1),
+    append(PartialRes, PartialRes1, Res).
 
-print_clause:-
-    myClause(X, Y),
-    write(X),
-    write(' '),
-    write(Y),
-    nl,
-    fail.
 
-print_clause:-
-    myQuery(X, Y),
-    write(X),
-    write(' '),
-    write(Y),
-    nl.
+construct([], empty).
+construct([neg(A)], neg(A)):-
+    atom(A),
+    !.
+construct([A], A):-
+    atom(A),
+    !.
+construct([A1, A2], Res):-
+    Res =.. [or, A2, A1].
+construct([A1|T], or(Res, A1)):-
+    construct(T, Res).
+
 
 print_result:-
     result(N1, N2, Clause, N3),
@@ -151,33 +172,6 @@ print_result:-
     write(N1), write(', '),
     write(N2), write(', '),
     write(Clause), write(', '),
-    write(N3), write(').'), nl,
+    write(N3), write(').'),
+    nl,
     fail.
-
-extract(neg(A), [neg(A)]):-
-    atomic(A), !.
-
-extract(A, [A]):-
-    atomic(A), !.
-
-extract(E,[Atom1|L]):-
-	E =.. [_Operation,RestExpression,Atom1],
-	extract(RestExpression,L).
-
-inverse([], empty).
-
-inverse([neg(A)], neg(A)):-
-    atomic(A), !.
-
-inverse([A], A):-
-    atomic(A), !.
-
-inverse([E1, E2], Res):-
-    Res =.. [or, E2, E1].
-
-inverse([E1 | T], or(Res, E1)):-
-    inverse(T, Res).
-
-%member(X, [X|_]):- !.
-%member(X, [_|T]):-
-%    member(X, T).
